@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"github.com/gin-gonic/gin"
+	"github.com/gin-contrib/cors"
 )
 
 const (
@@ -74,8 +75,17 @@ func main() {
 	// Создание роутера Gin
 	r := gin.Default()
 
+	// Добавление middleware для обработки CORS
+	config := cors.DefaultConfig()
+	config.AllowOrigins = []string{"http://localhost:3000"} // Укажите адрес вашего клиента
+	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
+	config.AllowHeaders = []string{"Origin", "Content-Type"}
+	config.AllowCredentials = true
+
+	r.Use(cors.New(config))
+
 	// Обработчик POST-запроса для set_status
-	r.POST("/application/:id", func(c *gin.Context) {
+	r.POST("/was/:id/", func(c *gin.Context) {
 		// Получение значения "id" из параметра запроса
 		id := c.Param("id")
 
@@ -86,5 +96,5 @@ func main() {
 	})
 
 	// Запуск сервера
-	r.Run(":9000")
+	r.Run("localhost:9000")
 }
