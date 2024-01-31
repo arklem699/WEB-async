@@ -1,57 +1,66 @@
 package main
 
 import (
-	"math/rand"
-	"time"
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
-	"github.com/gin-gonic/gin"
+	"sync"
+	"time"
+
 	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 )
 
 const (
 	MyToken = "access_token"
 )
 
-// Ваша структура с булевской переменной
+type DataArray struct {
+	Data []DataStruct `json:"data"`
+}
+
+type DataStruct struct {
+	ID      int `json:"id"`
+	Date    string `json:"date"`
+	Time    string `json:"time"`
+	Doctor  string `json:"doctor"`
+	ID_appl int    `json:"id_appl"`
+	Status  string `json:"status"`
+}
+
 type Result struct {
-	Was bool `json:"was"`
+	ID_appl    int `json:"id_appl"`
+	ID_appoint    int `json:"id_appoint"`
+	Was   bool   `json:"was"`
 	Token string `json:"token"`
 }
 
-// Функция для генерации случайного статуса
 func randomStatus() bool {
-	time.Sleep(5 * time.Second) // Задержка на 5 секунд
-	rand.Seed(time.Now().UnixNano())
+	time.Sleep(5 * time.Second)
 	return rand.Intn(2) == 0
 }
 
-// Функция для отправки статуса в отдельной горутине
-func SendStatus(id string, url string) {
-	// Выполнение расчётов с randomStatus
+func SendStatus(id_appl int, url string, id_appoint int, data DataStruct) {
 	result := randomStatus()
 
-	// Отправка PUT-запроса к основному серверу
-	data := Result{Was: result, Token: MyToken}
-	_, err := performPUTRequest(url, data)
+	dataResult := Result{ID_appl: id_appl, ID_appoint: id_appoint, Was: result, Token: MyToken}
+	_, err := performPUTRequest(url, dataResult)
 	if err != nil {
 		fmt.Println("Error sending status:", err)
 		return
 	}
 
-	fmt.Println("Status sent successfully for id:", id)
+	fmt.Println("Status sent successfully for id_appl:", id_appl, "and id_appoint:", id_appoint, "-", result)
 }
 
 func performPUTRequest(url string, data Result) (*http.Response, error) {
-	// Сериализация структуры в JSON
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err
 	}
 
-	// Создание PUT-запроса
 	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
@@ -59,10 +68,10 @@ func performPUTRequest(url string, data Result) (*http.Response, error) {
 
 	req.Header.Set("Content-Type", "application/json")
 
-	// Выполнение запроса
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
+		fmt.Println("Error sending status:", err)
 		return nil, err
 	}
 
@@ -72,29 +81,37 @@ func performPUTRequest(url string, data Result) (*http.Response, error) {
 }
 
 func main() {
-	// Создание роутера Gin
 	r := gin.Default()
 
-	// Добавление middleware для обработки CORS
 	config := cors.DefaultConfig()
-	config.AllowOrigins = []string{"http://localhost:3000"} // Укажите адрес вашего клиента
+	config.AllowOrigins = []string{"http://localhost:3000"}
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE"}
 	config.AllowHeaders = []string{"Origin", "Content-Type"}
 	config.AllowCredentials = true
 
 	r.Use(cors.New(config))
 
-	// Обработчик POST-запроса для set_status
-	r.POST("/was/:id/", func(c *gin.Context) {
-		// Получение значения "id" из параметра запроса
-		id := c.Param("id")
+	r.POST("/was/", func(c *gin.Context) {
+		var dataArray DataArray
 
-		// Запуск горутины для отправки статуса
-		go SendStatus(id, "http://127.0.0.1:8000/application/" + id + "/async/put/")
+		if err := c.ShouldBindJSON(&dataArray); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format"})
+			return
+		}
 
-		c.JSON(http.StatusOK, gin.H{"message": "Status update initiated"})
+		var wg sync.WaitGroup
+		for _, data := range dataArray.Data {
+			wg.Add(1)
+			go func(data DataStruct) {
+				defer wg.Done()
+				SendStatus(data.ID_appl, "http://127.0.0.1:8000/appapp/async/put/", data.ID, data)
+			}(data)
+		}
+
+		wg.Wait()
+
+		c.JSON(http.StatusOK, gin.H{"message": "Status update initiated for all IDs"})
 	})
 
-	// Запуск сервера
 	r.Run("localhost:9000")
 }
